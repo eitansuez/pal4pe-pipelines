@@ -44,6 +44,13 @@ resources:
   type: time
   source: { interval: 24h }
 
+- name: pas-product
+  type: gcs
+  source:
+    bucket: ((bucket))
+    json_key: ((json_key))
+    regexp: srt-(.*).pivotal
+
 jobs:
 - name: install-opsman
   plan:
@@ -233,6 +240,9 @@ jobs:
     - get: platform-automation-image
       params: { unpack: true }
     - get: configuration
+    - get: pas-product
+      params: { skip_download: true }
+      trigger: true
   - task: interpolate-env-creds
     image: platform-automation-image
     file: platform-automation-tasks/tasks/credhub-interpolate.yml
@@ -282,6 +292,10 @@ jobs:
     - get: platform-automation-image
       params: { unpack: true }
     - get: configuration
+    - get: pas-product
+      params: { skip_download: true }
+      passed: [ upload-and-stage-pas ]
+      trigger: true
   - task: interpolate-env-creds
     image: platform-automation-image
     file: platform-automation-tasks/tasks/credhub-interpolate.yml
@@ -314,6 +328,10 @@ jobs:
     - get: platform-automation-image
       params: { unpack: true }
     - get: configuration
+    - get: pas-product
+      params: { skip_download: true }
+      passed: [ configure-pas ]
+      trigger: true
   - task: interpolate-env-creds
     image: platform-automation-image
     file: platform-automation-tasks/tasks/credhub-interpolate.yml
