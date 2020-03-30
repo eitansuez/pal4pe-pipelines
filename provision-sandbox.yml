@@ -49,7 +49,14 @@ resources:
   source:
     bucket: ((bucket))
     json_key: ((json_key))
-    regexp: srt-(.*).pivotal
+    regexp: \[.*\]srt-(.*).pivotal
+
+- name: healthwatch-product
+  type: gcs
+  source:
+    bucket: ((bucket))
+    json_key: ((json_key))
+    regexp: \[.*\]p-healthwatch-(.*).pivotal
 
 jobs:
 - name: install-opsman
@@ -248,6 +255,7 @@ jobs:
       params: { unpack: true }
     - get: platform-automation-image
       params: { unpack: true }
+      passed: [ upgrade-opsman ]
     - get: configuration
     - get: pas-product
       params: { skip_download: true }
@@ -281,6 +289,61 @@ jobs:
     file: platform-automation-tasks/tasks/upload-and-stage-product.yml
     input_mapping:
       product: srt-tile
+      env: interpolated-configuration
+    params:
+      ENV_FILE: sandbox/env.yml
+  - task: upload-stemcell
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/upload-stemcell.yml
+    input_mapping:
+      stemcell: downloaded-stemcell
+      env: interpolated-configuration
+    params:
+      ENV_FILE: sandbox/env.yml
+
+- name: upload-and-stage-healthwatch
+  serial: true
+  serial_groups: [ install ]
+  plan:
+  - in_parallel:
+    - get: platform-automation-tasks
+      params: { unpack: true }
+    - get: platform-automation-image
+      params: { unpack: true }
+      passed: [ upgrade-opsman ]
+    - get: configuration
+    - get: healthwatch-product
+      params: { skip_download: true }
+      trigger: true
+  - task: interpolate-env-creds
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/credhub-interpolate.yml
+    params:
+      CREDHUB_CLIENT: ((credhub-client))
+      CREDHUB_SECRET: ((credhub-secret))
+      CREDHUB_SERVER: ((credhub-server))
+      CREDHUB_CA_CERT: ((credhub-ca-cert.certificate))
+      PREFIX: '/concourse/sandbox'
+      SKIP_MISSING: false
+    input_mapping:
+      files: configuration
+    output_mapping:
+      interpolated-files: interpolated-configuration
+  - task: download-healthwatch-product
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/download-product.yml
+    params:
+      CONFIG_FILE: download-product/healthwatch.yml
+      SOURCE: gcs
+    input_mapping:
+      config: interpolated-configuration
+    output_mapping:
+      downloaded-product: healthwatch-tile
+  - task: upload-and-stage-healthwatch
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/upload-and-stage-product.yml
+    input_mapping:
+      product: healthwatch-tile
       env: interpolated-configuration
     params:
       ENV_FILE: sandbox/env.yml
@@ -331,6 +394,44 @@ jobs:
       CONFIG_FILE: sandbox/pas.yml
       ENV_FILE: sandbox/env.yml
 
+- name: configure-healthwatch
+  serial: true
+  serial_groups: [ install ]
+  plan:
+  - in_parallel:
+    - get: platform-automation-tasks
+      params: { unpack: true }
+    - get: platform-automation-image
+      params: { unpack: true }
+    - get: configuration
+    - get: healthwatch-product
+      params: { skip_download: true }
+      passed: [ upload-and-stage-healthwatch ]
+      trigger: true
+  - task: interpolate-env-creds
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/credhub-interpolate.yml
+    params:
+      CREDHUB_CLIENT: ((credhub-client))
+      CREDHUB_SECRET: ((credhub-secret))
+      CREDHUB_SERVER: ((credhub-server))
+      CREDHUB_CA_CERT: ((credhub-ca-cert.certificate))
+      PREFIX: '/concourse/sandbox'
+      SKIP_MISSING: false
+    input_mapping:
+      files: configuration
+    output_mapping:
+      interpolated-files: interpolated-configuration
+  - task: configure-healthwatch
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/configure-product.yml
+    input_mapping:
+      config: interpolated-configuration
+      env: interpolated-configuration
+    params:
+      CONFIG_FILE: sandbox/healthwatch.yml
+      ENV_FILE: sandbox/env.yml
+
 - name: apply-changes
   serial: true
   serial_groups: [ install ]
@@ -344,6 +445,10 @@ jobs:
     - get: pas-product
       params: { skip_download: true }
       passed: [ configure-pas ]
+      trigger: true
+    - get: healthwatch-product
+      params: { skip_download: true }
+      passed: [ configure-healthwatch ]
       trigger: true
   - task: interpolate-env-creds
     image: platform-automation-image
